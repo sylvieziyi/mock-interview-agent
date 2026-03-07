@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sysctl -n machdep.cpu.brand_string)",
+      "Bash(sysctl -n hw.memsize)",
+      "Bash(pip3 --version)",
+      "Bash(brew --version)",
+      "Bash(git --version)",
+      "Bash(system_profiler SPDisplaysDataType)",
+      "Bash(ollama --version)",
+      "Bash(node --version)",
+      "Bash(docker --version)",
+      "Bash(gh auth status)",
+      "Bash(git config --global user.name)",
+      "Bash(git config --global user.email)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}
