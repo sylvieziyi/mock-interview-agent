@@ -1,85 +1,106 @@
-"""Qwen-based planning agent that loads skills and creates execution plans."""
+"""Generic planner — selects which skill(s) to run for a given goal.
+
+The planner reads all skill descriptions (from skill.md files) and asks
+the LLM to select the most appropriate skill(s) for the user's goal.
+It does NOT plan individual steps — each skill handles its own pipeline.
+"""
 
 import json
 import logging
 
-import requests
-
-from agent.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from agent.context import ContextStore
+from agent.shared.llm import call_llm
 from agent.skills.registry import SkillRegistry
 
 logger = logging.getLogger(__name__)
 
 PLANNER_SYSTEM_PROMPT = """\
-You are a planning agent. You receive a goal and a set of available skills.
-Your job is to create an ordered execution plan using only the available skills.
+You are a planning agent. Given a user's goal and a set of available skills,
+select which skill(s) should be executed to accomplish the goal.
 
 Rules:
-- Use only the skills listed below
-- Output a JSON array of steps
-- Each step has: skill_name, reason (why this step is needed)
-- Order matters — each step can use output from previous steps
-- Be concise
+- Select only skills that are relevant to the goal
+- Most goals only need 1 skill
+- Output a JSON array of skill names to execute, in order
+- If no skill matches, return an empty array []
 
-Respond ONLY with a valid JSON array, no other text.
-Format: [{"step": 1, "skill_name": "...", "reason": "..."}]
+Respond ONLY with a valid JSON array of strings, no other text.
+Example: ["ai_paper_agent"]
 """
 
 
-def create_plan(registry: SkillRegistry, goal: str) -> list[dict]:
-    """Use Qwen to create an execution plan from available skills.
+def select_skills(
+    registry: SkillRegistry,
+    goal: str,
+    context: ContextStore | None = None,
+) -> list[str]:
+    """Use the LLM to select which skill(s) to run for a given goal.
 
     Args:
-        registry: The skill registry with loaded skill definitions.
-        goal: The high-level goal to accomplish.
+        registry: The skill registry with discovered skills.
+        goal: The user's high-level goal.
+        context: Optional context for session history.
 
     Returns:
-        List of plan steps, each with 'skill_name' and 'reason'.
+        Ordered list of skill names to execute.
     """
-    skills_context = registry.get_all_definitions()
+    skills_context = registry.get_all_descriptions()
+    available = registry.list_skills()
 
     prompt = (
         f"Available skills:\n\n{skills_context}\n\n"
         f"---\n\n"
-        f"Goal: {goal}\n\n"
-        f"Create an execution plan:"
+        f"User's goal: {goal}\n\n"
+        f"Which skill(s) should run? Respond with a JSON array of skill names."
     )
 
     try:
-        resp = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "system": PLANNER_SYSTEM_PROMPT,
-                "stream": False,
-            },
-            timeout=300,
-        )
-        resp.raise_for_status()
-        response_text = resp.json().get("response", "").strip()
+        result = call_llm(prompt, system=PLANNER_SYSTEM_PROMPT, expect_json=True)
 
-        # Handle markdown code blocks
-        if response_text.startswith("```"):
-            response_text = response_text.split("\n", 1)[-1].rsplit("```", 1)[0]
+        # Validate that all returned skill names actually exist
+        if isinstance(result, list):
+            valid = [s for s in result if s in available]
+            if valid:
+                logger.info(f"Planner selected skills: {valid}")
+                if context:
+                    context.log_step("planner", "success", f"Selected: {valid}")
+                return valid
 
-        plan = json.loads(response_text)
-        logger.info(f"Plan created with {len(plan)} steps")
-        for step in plan:
-            logger.info(f"  Step {step.get('step', '?')}: {step['skill_name']} — {step['reason']}")
-        return plan
+        logger.warning(f"Planner returned invalid skills: {result}")
+    except Exception as e:
+        logger.warning(f"Planner failed ({e}), using fallback")
 
-    except (json.JSONDecodeError, requests.RequestException) as e:
-        logger.warning(f"Planner failed ({e}), using default plan")
-        return get_default_plan()
+    # Fallback: keyword matching
+    return _fallback_select(goal, available, context)
 
 
-def get_default_plan() -> list[dict]:
-    """Fallback plan if Qwen planner fails."""
-    return [
-        {"step": 1, "skill_name": "paper_discovery", "reason": "Fetch papers from all sources"},
-        {"step": 2, "skill_name": "paper_evaluation", "reason": "Score and filter by relevance"},
-        {"step": 3, "skill_name": "paper_summarization", "reason": "Summarize kept papers"},
-        {"step": 4, "skill_name": "file_management", "reason": "Download PDFs and organize"},
-        {"step": 5, "skill_name": "notification", "reason": "Send email digest"},
-    ]
+def _fallback_select(
+    goal: str,
+    available: list[str],
+    context: ContextStore | None = None,
+) -> list[str]:
+    """Fallback skill selection using keyword matching."""
+    goal_lower = goal.lower()
+
+    # Simple keyword mapping
+    keyword_map = {
+        "ai_paper_agent": ["paper", "research", "arxiv", "digest", "academic", "ai papers"],
+    }
+
+    selected = []
+    for skill_name in available:
+        keywords = keyword_map.get(skill_name, [skill_name.replace("_", " ")])
+        if any(kw in goal_lower for kw in keywords):
+            selected.append(skill_name)
+
+    # If nothing matched, run all skills (best effort)
+    if not selected:
+        selected = available
+        logger.warning(f"No keyword match for goal, running all skills: {selected}")
+    else:
+        logger.info(f"Fallback selected skills: {selected}")
+
+    if context:
+        context.log_step("planner", "fallback", f"Selected: {selected}")
+
+    return selected

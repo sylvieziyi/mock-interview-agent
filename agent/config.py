@@ -1,4 +1,4 @@
-"""Configuration for the AI Paper Agent."""
+"""Configuration for the Junnie-Crew Agent."""
 
 import os
 from pathlib import Path
@@ -7,16 +7,28 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 # --- Topics & Filtering ---
-TOPICS = [
-    "LLM foundation models training scaling",
-    "AI agents planning tool use reasoning",
-    "agent context management skills memory",
-    "multimodal vision language model",
-    "AI infrastructure inference optimization",
-    "LLM quantization distillation efficiency",
+# Each entry is (query, weight). Weight multiplies ARXIV_BASE_RESULTS:
+#   weight 3 → 3x results fetched  (highest priority)
+#   weight 2 → 2x results fetched  (medium priority)
+#   weight 1 → 1x results fetched  (lower priority)
+TOPICS: list[tuple[str, int]] = [
+    # Agents (highest priority)
+    ("cat:cs.AI LLM agent architecture planning tool use", 3),
+    ("cat:cs.AI autonomous agent deep research task automation", 3),
+    ("cat:cs.AI agent memory context management retrieval", 3),
+    # LLM / CL (medium priority)
+    ("cat:cs.CL large language model reasoning chain of thought", 2),
+    ("cat:cs.CL LLM coding agent code generation", 2),
+    # Infra / CV (lower priority)
+    ("cat:cs.LG transformer inference optimization quantization distillation", 1),
+    ("cat:cs.CV vision language model multimodal VLM", 1),
 ]
 
 MIN_QUALITY_SCORE = 7  # Papers scoring below this are discarded (0-10 scale)
+MAX_FINAL_PAPERS = 20  # Max papers in final digest (top N by score)
+
+# --- Time Range ---
+PAPER_TIME_RANGE_DAYS = 365  # Default: 1 year. Set to 730 for 2 years, 30 for 1 month, etc.
 
 # --- Ollama / Qwen ---
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -27,9 +39,7 @@ SCORE_BATCH_SIZE = 5  # Number of papers to score per LLM call
 PROJECT_ROOT = Path(__file__).parent.parent
 PAPERS_DIR = PROJECT_ROOT / "papers"
 DATA_DIR = PROJECT_ROOT / "data"
-SEEN_PAPERS_FILE = DATA_DIR / "seen_papers.json"
 LOG_DIR = DATA_DIR / "logs"
-SKILLS_DIR = Path(__file__).parent / "skills" / "definitions"
 
 # --- Gmail ---
 GMAIL_USER = os.getenv("GMAIL_USER", "")
@@ -39,5 +49,6 @@ GMAIL_SMTP_HOST = "smtp.gmail.com"
 GMAIL_SMTP_PORT = 587
 
 # --- Paper Sources ---
-ARXIV_MAX_RESULTS = 50  # per topic query
-SEMANTIC_SCHOLAR_MAX_RESULTS = 20  # per topic query
+ARXIV_BASE_RESULTS = 30  # multiplied by topic weight to get per-topic fetch count
+                         # agents: 3×30=90, CL/LG: 2×30=60, CV: 1×30=30
+

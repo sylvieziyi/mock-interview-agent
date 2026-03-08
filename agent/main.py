@@ -1,43 +1,25 @@
-"""AI Paper Agent — main entry point.
+"""Junnie-Crew Agent — generic entry point.
 
-Orchestrates the full daily pipeline:
-1. Load skills from definitions
-2. Qwen planner creates an execution plan
-3. Executor runs each skill step
-4. Results flow through: discovery → evaluation → summarization → download → notify
+Usage:
+    python -m agent.main                          # default goal, uses planner
+    python -m agent.main --dry-run                 # no LLM/download/email
+    python -m agent.main --goal "find AI papers"   # custom goal
+    python -m agent.main --skill ai_paper_agent    # skip planner, run directly
 """
 
 import argparse
-import json
 import logging
 import sys
 from datetime import datetime
-from pathlib import Path
 
-from agent.config import (
-    ARXIV_MAX_RESULTS,
-    DATA_DIR,
-    LOG_DIR,
-    MIN_QUALITY_SCORE,
-    SEEN_PAPERS_FILE,
-    SEMANTIC_SCHOLAR_MAX_RESULTS,
-    SKILLS_DIR,
-    TOPICS,
-)
-from agent.planner import create_plan, get_default_plan
+from agent.config import LOG_DIR
+from agent.context import ContextStore
+from agent.planner import select_skills
 from agent.skills.registry import SkillRegistry
-from agent.tools.downloader import download_pdf, organize_files
-from agent.tools.fetchers import (
-    search_arxiv,
-    search_huggingface,
-    search_papers_with_code,
-    search_semantic_scholar,
-)
-from agent.tools.notifier import send_email_digest
-from agent.tools.scorer import filter_by_threshold, score_papers
-from agent.tools.summarizer import summarize_paper
 
 logger = logging.getLogger("agent")
+
+DEFAULT_GOAL = "Collect today's best AI papers, filter for quality, summarize, download, and send email digest"
 
 
 def setup_logging():
@@ -56,181 +38,83 @@ def setup_logging():
     )
 
 
-def load_seen_papers() -> set:
-    """Load previously seen paper IDs for deduplication."""
-    if SEEN_PAPERS_FILE.exists():
-        data = json.loads(SEEN_PAPERS_FILE.read_text())
-        return set(data)
-    return set()
-
-
-def save_seen_papers(seen: set):
-    """Save seen paper IDs to disk."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    SEEN_PAPERS_FILE.write_text(json.dumps(sorted(seen), indent=2))
-
-
-def dedup_papers(papers: list[dict], seen: set) -> list[dict]:
-    """Remove duplicates within the batch and against previously seen papers."""
-    unique = []
-    current_ids = set()
-
-    for p in papers:
-        # Use arxiv_id as primary key, fall back to title
-        paper_id = p.get("arxiv_id") or p.get("doi") or p.get("title", "")
-        if not paper_id or paper_id in seen or paper_id in current_ids:
-            continue
-        current_ids.add(paper_id)
-        unique.append(p)
-
-    logger.info(f"Dedup: {len(papers)} → {len(unique)} unique papers")
-    return unique
-
-
-def build_registry() -> SkillRegistry:
-    """Build and register all skills with their tool functions."""
-    registry = SkillRegistry(SKILLS_DIR)
-
-    registry.register("paper_discovery", {
-        "search_arxiv": lambda: search_arxiv(TOPICS, ARXIV_MAX_RESULTS),
-        "search_huggingface": search_huggingface,
-        "search_papers_with_code": search_papers_with_code,
-        "search_semantic_scholar": lambda: search_semantic_scholar(
-            TOPICS, SEMANTIC_SCHOLAR_MAX_RESULTS
-        ),
-    })
-
-    registry.register("paper_evaluation", {
-        "score_papers": score_papers,
-        "filter_by_threshold": lambda papers: filter_by_threshold(papers, MIN_QUALITY_SCORE),
-    })
-
-    registry.register("paper_summarization", {
-        "summarize_paper": summarize_paper,
-    })
-
-    registry.register("file_management", {
-        "download_pdf": download_pdf,
-        "organize_files": organize_files,
-    })
-
-    registry.register("notification", {
-        "send_email_digest": send_email_digest,
-    })
-
-    return registry
-
-
-def execute_plan(plan: list[dict], registry: SkillRegistry, dry_run: bool = False):
-    """Execute the plan step by step, passing data between skills."""
-    papers = []
-    seen = load_seen_papers()
-
-    for step in plan:
-        skill_name = step["skill_name"]
-        logger.info(f"--- Step {step.get('step', '?')}: {skill_name} ---")
-
-        if skill_name == "paper_discovery":
-            # Run all fetchers and merge results
-            all_papers = []
-            for tool_name, tool_fn in registry.get_skill(skill_name).tools.items():
-                try:
-                    result = tool_fn()
-                    all_papers.extend(result)
-                except Exception as e:
-                    logger.error(f"Fetcher {tool_name} failed: {e}")
-
-            papers = dedup_papers(all_papers, seen)
-
-            if not papers:
-                logger.warning("No new papers found — stopping pipeline")
-                return
-
-        elif skill_name == "paper_evaluation":
-            if dry_run:
-                logger.info("[DRY RUN] Skipping LLM scoring")
-                # In dry run, assign random scores for testing
-                for p in papers:
-                    p["score"] = 5
-                    p["category"] = "llm"
-            else:
-                papers = score_papers(papers)
-            papers = filter_by_threshold(papers, MIN_QUALITY_SCORE)
-
-            if not papers:
-                logger.info("No papers passed the quality threshold")
-                return
-
-        elif skill_name == "paper_summarization":
-            if dry_run:
-                logger.info("[DRY RUN] Skipping LLM summarization")
-                for p in papers:
-                    p["summary"] = f"[DRY RUN] {p.get('abstract', '')[:100]}..."
-            else:
-                papers = summarize_paper(papers)
-
-        elif skill_name == "file_management":
-            if dry_run:
-                logger.info("[DRY RUN] Skipping PDF downloads")
-                for p in papers:
-                    p["local_path"] = "[DRY RUN]"
-            else:
-                papers = download_pdf(papers)
-                papers = organize_files(papers)
-
-        elif skill_name == "notification":
-            if dry_run:
-                logger.info("[DRY RUN] Skipping email notification")
-                logger.info(f"Would send digest with {len(papers)} papers:")
-                for p in papers:
-                    logger.info(f"  [{p.get('score', '?')}] {p['title'][:70]}")
-            else:
-                send_email_digest(papers)
-
-        else:
-            logger.warning(f"Unknown skill: {skill_name}, skipping")
-
-    # Update seen papers
-    for p in papers:
-        paper_id = p.get("arxiv_id") or p.get("doi") or p.get("title", "")
-        if paper_id:
-            seen.add(paper_id)
-    save_seen_papers(seen)
-
-    logger.info(f"Pipeline complete. {len(papers)} papers processed.")
-
-
 def main():
-    parser = argparse.ArgumentParser(description="AI Paper Agent")
+    parser = argparse.ArgumentParser(description="Junnie-Crew Agent")
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Run without LLM calls, downloads, or email sending",
     )
     parser.add_argument(
-        "--no-plan",
-        action="store_true",
-        help="Skip Qwen planning step, use default pipeline order",
+        "--goal",
+        type=str,
+        default=DEFAULT_GOAL,
+        help="The goal for the agent to accomplish",
+    )
+    parser.add_argument(
+        "--skill",
+        type=str,
+        default=None,
+        help="Skip planner and run a specific skill directly",
     )
     args = parser.parse_args()
 
     setup_logging()
-    logger.info(f"=== AI Paper Agent started at {datetime.now().isoformat()} ===")
+    logger.info(f"=== Junnie-Crew Agent started at {datetime.now().isoformat()} ===")
 
     if args.dry_run:
         logger.info("Running in DRY RUN mode")
 
-    registry = build_registry()
-    logger.info(f"Loaded skills: {registry.list_skills()}")
+    # Initialize context
+    context = ContextStore()
+    logger.info(f"Session: {context.session_id}")
 
-    if args.no_plan or args.dry_run:
-        plan = get_default_plan()
-        logger.info("Using default plan")
+    # Discover skills
+    registry = SkillRegistry()
+    available = registry.list_skills()
+    logger.info(f"Available skills: {available}")
+
+    if not available:
+        logger.error("No skills found. Add skills to agent/skills/")
+        return
+
+    # Select skills to run
+    if args.skill:
+        # Direct skill execution (bypass planner)
+        if not registry.has_skill(args.skill):
+            logger.error(f"Skill '{args.skill}' not found. Available: {available}")
+            return
+        skills_to_run = [args.skill]
+        logger.info(f"Direct execution: {args.skill}")
+    elif args.dry_run:
+        # In dry-run, skip the planner LLM call too
+        skills_to_run = _fallback_for_goal(args.goal, available)
+        logger.info(f"Dry-run skill selection: {skills_to_run}")
     else:
-        plan = create_plan(registry, "Collect today's best AI papers, filter for quality, summarize, download, and send email digest")
+        # Use the LLM planner
+        skills_to_run = select_skills(registry, args.goal, context)
 
-    execute_plan(plan, registry, dry_run=args.dry_run)
-    logger.info("=== Done ===")
+    # Execute selected skills
+    for skill_name in skills_to_run:
+        try:
+            registry.execute_skill(skill_name, context, dry_run=args.dry_run)
+        except Exception as e:
+            logger.error(f"Skill '{skill_name}' failed: {e}")
+            context.log_step(skill_name, "error", str(e))
+
+    # Save session
+    context.save_session()
+    logger.info(f"=== Done — session saved ===")
+
+
+def _fallback_for_goal(goal: str, available: list[str]) -> list[str]:
+    """Simple keyword-based skill selection for dry-run mode."""
+    goal_lower = goal.lower()
+    if any(kw in goal_lower for kw in ["paper", "research", "arxiv", "digest"]):
+        if "ai_paper_agent" in available:
+            return ["ai_paper_agent"]
+    # Default: run all available skills
+    return available
 
 
 if __name__ == "__main__":

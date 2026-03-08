@@ -13,7 +13,13 @@
       "Bash(gh auth status)",
       "Bash(git config --global user.name)",
       "Bash(git config --global user.email)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(wc -l /Users/user/Documents/MyAgent/agent/*.py /Users/user/Documents/MyAgent/agent/shared/*.py /Users/user/Documents/MyAgent/agent/tools/*.py /Users/user/Documents/MyAgent/agent/skills/*.py)",
+      "Bash(python3 -c \":*)",
+      "Bash(python -m py_compile agent/tools/fetchers.py)",
+      "Bash(python -m py_compile agent/config.py)",
+      "Bash(python3 -m py_compile /Users/user/Documents/MyAgent/agent/tools/fetchers.py)",
+      "Bash(python3 -m py_compile /Users/user/Documents/MyAgent/agent/config.py)"
     ]
   }
 }
