@@ -129,11 +129,12 @@ def _score_and_filter(
 ) -> list[dict]:
     """Score papers with LLM and filter by quality threshold."""
     if dry_run:
-        logger.info("[DRY RUN] Skipping LLM scoring — assigning score=5")
+        logger.info("[DRY RUN] Skipping LLM scoring — returning all papers unscored")
         for p in papers:
-            p["score"] = 5
-            p["category"] = "llm"
-        context.log_step("score", "dry_run", f"Assigned default scores to {len(papers)} papers")
+            p["score"] = 0.0
+            p["category_scores"] = {}
+            p["category"] = "unscored"
+        context.log_step("score", "dry_run", f"{len(papers)} papers (unscored)")
         return papers
 
     papers = score_papers(papers, TOPICS)
@@ -216,7 +217,9 @@ def _notify(papers: list[dict], context: ContextStore, dry_run: bool):
     if dry_run:
         logger.info(f"[DRY RUN] Would send digest with {len(papers)} papers:")
         for p in papers:
-            logger.info(f"  [{p.get('score', '?')}] {p['title'][:70]}")
+            score = p.get("score", 0)
+            label = f"{score}" if score > 0 else "-"
+            logger.info(f"  [{label}] {p['title'][:70]}")
         context.log_step("notify", "dry_run", f"Would send {len(papers)} papers")
         return
 
@@ -240,16 +243,23 @@ def _build_digest_html(papers: list[dict], date_str: str) -> str:
     for category, cat_papers in sorted(by_category.items()):
         items = ""
         for p in cat_papers:
-            score = p.get("score", "?")
+            score = p.get("score", 0)
+            cat_scores = p.get("category_scores", {})
             summary = p.get("summary", "No summary available.")
             url = p.get("url", "#")
             local_path = p.get("local_path", "")
             local_info = f'<br><small>Local: <code>{local_path}</code></small>' if local_path else ""
 
+            # Show per-category breakdown
+            breakdown = " | ".join(
+                f"{k}: {v}" for k, v in cat_scores.items()
+            ) if cat_scores else "N/A"
+
             items += f"""
             <div style="margin-bottom: 16px; padding: 12px; border-left: 3px solid #4A90D9; background: #f8f9fa;">
                 <strong><a href="{url}" style="color: #1a73e8; text-decoration: none;">{p['title']}</a></strong>
-                <span style="color: #666; font-size: 12px;">[Score: {score}/10]</span>
+                <span style="color: #666; font-size: 12px;">[{score}/10]</span>
+                <br><span style="color: #999; font-size: 11px;">{breakdown}</span>
                 <br><span style="color: #333; font-size: 14px;">{summary}</span>
                 {local_info}
             </div>"""

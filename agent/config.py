@@ -24,8 +24,17 @@ TOPICS: list[tuple[str, int]] = [
     ("cat:cs.CV vision language model multimodal VLM", 1),
 ]
 
-MIN_QUALITY_SCORE = 7  # Papers scoring below this are discarded (0-10 scale)
-MAX_FINAL_PAPERS = 20  # Max papers in final digest (top N by score)
+MIN_QUALITY_SCORE = 5.0  # Papers scoring below this (weighted avg) are discarded
+MAX_FINAL_PAPERS = 20   # Max papers in final digest (top N by score)
+
+# --- Scoring Categories ---
+# Each category is scored 1-10 by the LLM, then combined via weighted average.
+SCORING_CATEGORIES: dict[str, float] = {
+    "relevance": 0.40,         # How relevant to user's interests
+    "novelty": 0.25,           # How novel the approach or contribution
+    "practical_impact": 0.20,  # Real-world applicability
+    "technical_quality": 0.15, # Rigor and methodology
+}
 
 # --- Time Range ---
 PAPER_TIME_RANGE_DAYS = 365  # Default: 1 year. Set to 730 for 2 years, 30 for 1 month, etc.
