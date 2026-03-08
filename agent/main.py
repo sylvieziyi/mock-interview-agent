@@ -14,7 +14,8 @@ from datetime import datetime
 
 from agent.config import LOG_DIR
 from agent.context import ContextStore
-from agent.planner import select_skills
+from agent.planner import fallback_select, select_skills
+from agent.shared.llm import is_ollama_running
 from agent.skills.registry import SkillRegistry
 
 logger = logging.getLogger("agent")
@@ -78,6 +79,11 @@ def main():
         logger.error("No skills found. Add skills to agent/skills/")
         return
 
+    # Pre-flight check: ensure Ollama is reachable (skip in dry-run)
+    if not args.dry_run and not is_ollama_running():
+        logger.error("Ollama is not running or model is not available. Start Ollama first.")
+        return
+
     # Select skills to run
     if args.skill:
         # Direct skill execution (bypass planner)
@@ -88,7 +94,7 @@ def main():
         logger.info(f"Direct execution: {args.skill}")
     elif args.dry_run:
         # In dry-run, skip the planner LLM call too
-        skills_to_run = _fallback_for_goal(args.goal, available)
+        skills_to_run = fallback_select(args.goal, available)
         logger.info(f"Dry-run skill selection: {skills_to_run}")
     else:
         # Use the LLM planner
@@ -105,16 +111,6 @@ def main():
     # Save session
     context.save_session()
     logger.info(f"=== Done — session saved ===")
-
-
-def _fallback_for_goal(goal: str, available: list[str]) -> list[str]:
-    """Simple keyword-based skill selection for dry-run mode."""
-    goal_lower = goal.lower()
-    if any(kw in goal_lower for kw in ["paper", "research", "arxiv", "digest"]):
-        if "ai_paper_agent" in available:
-            return ["ai_paper_agent"]
-    # Default: run all available skills
-    return available
 
 
 if __name__ == "__main__":

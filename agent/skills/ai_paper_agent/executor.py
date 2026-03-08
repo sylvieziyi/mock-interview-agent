@@ -1,13 +1,13 @@
 """AI Paper Agent skill executor.
 
 Orchestrates the full paper collection pipeline:
-  fetch → dedup → pre-filter (signals) → score (LLM) → filter → summarize → download → notify
+  fetch → dedup → score (LLM) → filter → summarize → download → notify
 
 Source: arXiv (weighted topic queries with cat: category filters).
 Scoring: LLM-based relevance scoring, filtered by threshold, top N selected.
 
-This executor imports reusable tools from agent/tools/ and agent/shared/.
-It owns only the pipeline logic, not the tool implementations.
+This executor imports shared utilities from agent/shared/ and skill-specific
+modules (fetchers, scorer, summarizer) co-located in this skill directory.
 """
 
 import logging
@@ -23,12 +23,9 @@ from agent.config import (
 from agent.context import ContextStore
 from agent.shared.email import send_email
 from agent.shared.file_ops import download_file, slugify
-from agent.tools.fetchers import (
-    search_arxiv,
-
-)
-from agent.tools.scorer import filter_by_threshold, prefilter_by_signals, score_papers
-from agent.tools.summarizer import summarize_papers
+from agent.skills.ai_paper_agent.fetchers import search_arxiv
+from agent.skills.ai_paper_agent.scorer import filter_by_threshold, score_papers
+from agent.skills.ai_paper_agent.summarizer import summarize_papers
 
 logger = logging.getLogger(__name__)
 
@@ -49,16 +46,7 @@ def execute(context: ContextStore, dry_run: bool = False):
         context.log_step("ai_paper_agent", "completed", "No new papers found")
         return
 
-    # --- Step 2: Pre-filter by open-source signals ---
-    papers = prefilter_by_signals(papers)
-    context.log_step("prefilter", "success", f"{len(papers)} papers passed signal pre-filter")
-
-    if not papers:
-        logger.info("No papers passed signal pre-filter — done.")
-        context.log_step("ai_paper_agent", "completed", "No papers passed pre-filter")
-        return
-
-    # --- Step 3: LLM score and filter ---
+    # --- Step 2: LLM score and filter ---
     papers = _score_and_filter(papers, context, dry_run)
     if not papers:
         logger.info("No papers passed quality threshold — done.")
@@ -101,11 +89,11 @@ def _fetch_papers(context: ContextStore) -> list[dict]:
     try:
         all_papers = search_arxiv(TOPICS, ARXIV_BASE_RESULTS)
         logger.info(f"Fetched {len(all_papers)} papers from arXiv")
+        context.log_step("fetch", "success", f"Fetched {len(all_papers)} total papers")
     except Exception as e:
         logger.error(f"arXiv fetch failed: {e}")
         all_papers = []
-
-    context.log_step("fetch", "success", f"Fetched {len(all_papers)} total papers")
+        context.log_step("fetch", "error", f"arXiv fetch failed: {e}")
     context.checkpoint("after_fetch")
 
     # Dedup against long-term memory

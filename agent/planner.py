@@ -71,10 +71,10 @@ def select_skills(
         logger.warning(f"Planner failed ({e}), using fallback")
 
     # Fallback: keyword matching
-    return _fallback_select(goal, available, context)
+    return fallback_select(goal, available, context)
 
 
-def _fallback_select(
+def fallback_select(
     goal: str,
     available: list[str],
     context: ContextStore | None = None,

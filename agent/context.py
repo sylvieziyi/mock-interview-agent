@@ -5,8 +5,8 @@ Three layers of memory:
 2. Short-term Memory — current session log (what steps ran, results summary)
 3. Long-term Memory — cross-session knowledge (seen papers, user preferences)
 
-Also includes a context window manager that compresses context before
-sending to the LLM, so it never overflows the model's context window.
+TODO: Migrate long-term memory from JSON to SQLite for atomic writes,
+      file-locking safety, and efficient lookups at scale.
 """
 
 import json
@@ -123,48 +123,6 @@ class ContextStore:
         """Get all previously seen paper IDs."""
         lt = self.load_long_term()
         return set(lt.get("seen_paper_ids", []))
-
-    # --- Context Window Manager ---
-
-    def get_context_for_llm(self, max_chars: int = 4000) -> str:
-        """Build a compressed context string for the LLM, staying under max_chars.
-
-        Includes:
-        - Session summary (what's been done)
-        - Working memory summary (current state)
-        """
-        parts = []
-
-        # Session summary
-        session_summary = self.get_session_summary()
-        parts.append(f"## Session Progress\n{session_summary}")
-
-        # Working memory summary (compressed)
-        if self.working_memory:
-            mem_summary = self._summarize_working_memory()
-            parts.append(f"## Current State\n{mem_summary}")
-
-        context = "\n\n".join(parts)
-
-        # Truncate if too long
-        if len(context) > max_chars:
-            context = context[:max_chars] + "\n... (context truncated)"
-
-        return context
-
-    def _summarize_working_memory(self) -> str:
-        """Create a compact summary of working memory for LLM context."""
-        lines = []
-        for key, value in self.working_memory.items():
-            if isinstance(value, list):
-                lines.append(f"- {key}: {len(value)} items")
-            elif isinstance(value, dict):
-                lines.append(f"- {key}: dict with {len(value)} keys")
-            elif isinstance(value, str) and len(value) > 100:
-                lines.append(f"- {key}: \"{value[:80]}...\"")
-            else:
-                lines.append(f"- {key}: {value}")
-        return "\n".join(lines) or "Empty"
 
     def _make_serializable(self, obj: Any) -> Any:
         """Make an object JSON-serializable."""

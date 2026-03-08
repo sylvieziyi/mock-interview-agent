@@ -11,21 +11,10 @@ Uses shared/llm.py for all LLM calls.
 import json
 import logging
 
-from agent.config import SCORE_BATCH_SIZE, SCORING_CATEGORIES, TOPICS
+from agent.config import PAPER_CATEGORIES, SCORE_BATCH_SIZE, SCORING_CATEGORIES, TOPICS
 from agent.shared.llm import call_llm
 
 logger = logging.getLogger(__name__)
-
-
-def prefilter_by_signals(papers: list[dict]) -> list[dict]:
-    """Pre-filter papers using open-source quality signals.
-
-    Currently arXiv is the only source, so all papers pass through.
-    This function is kept for extensibility when additional sources
-    with quality signals (e.g. upvotes) are added in the future.
-    """
-    logger.info(f"Pre-filter: {len(papers)} papers (all pass — arXiv only source)")
-    return papers
 
 
 def _compute_weighted_score(category_scores: dict[str, int]) -> float:
@@ -85,15 +74,16 @@ def score_papers(papers: list[dict], topics=None) -> list[dict]:
 
         example_scores = {cat: 7 for cat in SCORING_CATEGORIES}
         example_scores["relevance"] = 9
+        paper_cats_str = ", ".join(PAPER_CATEGORIES)
         example = json.dumps(
-            [{"index": 0, "scores": example_scores, "category": "agents"}],
+            [{"index": 0, "scores": example_scores, "category": PAPER_CATEGORIES[0]}],
             indent=None,
         )
 
         prompt = (
             f"Rate each paper below across these dimensions (1-10 each): "
             f"{categories_str}.\n"
-            f"Also assign a category (one of: agents, llm, multimodal, infra).\n"
+            f"Also assign a category (one of: {paper_cats_str}).\n"
             f"Respond ONLY with valid JSON array, no other text.\n"
             f"Format: {example}\n"
             f"\nPapers:{batch_text}"

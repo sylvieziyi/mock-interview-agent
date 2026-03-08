@@ -27,6 +27,9 @@ TOPICS: list[tuple[str, int]] = [
 MIN_QUALITY_SCORE = 5.0  # Papers scoring below this (weighted avg) are discarded
 MAX_FINAL_PAPERS = 20   # Max papers in final digest (top N by score)
 
+# --- Paper Categories (used by scorer to label papers) ---
+PAPER_CATEGORIES: list[str] = ["agents", "llm", "multimodal", "infra"]
+
 # --- Scoring Categories ---
 # Each category is scored 1-10 by the LLM, then combined via weighted average.
 SCORING_CATEGORIES: dict[str, float] = {

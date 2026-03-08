@@ -8,8 +8,10 @@ Skills are discovered automatically. No manual registration needed.
 """
 
 import importlib
+import inspect
 import logging
 from pathlib import Path
+from typing import Any
 
 from agent.context import ContextStore
 
@@ -28,6 +30,21 @@ class SkillInfo:
 
     def __repr__(self):
         return f"Skill({self.name})"
+
+
+def _validate_executor(module, skill_name: str) -> bool:
+    """Validate that a skill module has a proper execute function."""
+    if not hasattr(module, "execute"):
+        logger.error(f"Skill '{skill_name}': executor.py missing 'execute' function")
+        return False
+
+    sig = inspect.signature(module.execute)
+    params = list(sig.parameters.keys())
+    if len(params) < 1:
+        logger.error(f"Skill '{skill_name}': execute() must accept at least (context) parameter")
+        return False
+
+    return True
 
 
 class SkillRegistry:
@@ -54,6 +71,8 @@ class SkillRegistry:
                     module = importlib.import_module(
                         f"agent.skills.{path.name}.executor"
                     )
+                    if not _validate_executor(module, path.name):
+                        continue
                     self.skills[path.name] = SkillInfo(
                         name=path.name,
                         description=description,
@@ -74,14 +93,15 @@ class SkillRegistry:
         """Return names of all discovered skills."""
         return list(self.skills.keys())
 
-    def execute_skill(self, name: str, context: ContextStore, dry_run: bool = False):
-        """Execute a skill by name."""
+    def execute_skill(self, name: str, context: ContextStore, dry_run: bool = False) -> dict[str, Any]:
+        """Execute a skill by name. Returns the skill's result dict."""
         if name not in self.skills:
             raise KeyError(f"Skill not found: {name}. Available: {self.list_skills()}")
 
         skill = self.skills[name]
         logger.info(f"Executing skill: {name}")
-        skill.executor.execute(context, dry_run=dry_run)
+        result = skill.executor.execute(context, dry_run=dry_run)
+        return result if isinstance(result, dict) else {"status": "success"}
 
     def has_skill(self, name: str) -> bool:
         """Check if a skill exists."""
