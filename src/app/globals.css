@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --bg: #07090f;
+  --surface: #0e1220;
+  --surface-2: #161b2e;
+  --border: #232a44;
+  --border-strong: #2f3856;
+  --text: #e6e8ef;
+  --text-dim: #9aa3bb;
+  --text-mute: #6b7591;
+  --accent: #818cf8;
+  --accent-strong: #a5b4fc;
+  --success: #34d399;
+  --danger: #f87171;
+  --warn: #fbbf24;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+::selection { background: rgba(129, 140, 248, 0.35); }
+
+/* scrollbar (subtle) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #1f2540; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #2a3258; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* markdown rendering inside chat bubbles */
+.md { font-size: 14px; line-height: 1.55; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0.4em 0; }
+.md h1, .md h2, .md h3, .md h4 { font-weight: 600; margin: 0.7em 0 0.3em; line-height: 1.25; }
+.md h1 { font-size: 1.05em; }
+.md h2 { font-size: 1em; }
+.md h3 { font-size: 0.95em; color: var(--text-dim); }
+.md ul, .md ol { padding-left: 1.25em; margin: 0.3em 0; }
+.md li { margin: 0.1em 0; }
+.md code {
+  background: rgba(129, 140, 248, 0.12);
+  color: #c7d2fe;
+  padding: 0.05em 0.35em;
+  border-radius: 4px;
+  font-size: 0.88em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.md pre {
+  background: #0a0d18;
+  border: 1px solid var(--border);
+  padding: 0.7em 0.9em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.md pre code { background: none; padding: 0; color: inherit; font-size: 0.85em; }
+.md blockquote { border-left: 2px solid var(--border-strong); padding-left: 0.8em; color: var(--text-dim); margin: 0.5em 0; }
+.md strong { color: var(--text); font-weight: 600; }
+.md hr { border: none; border-top: 1px solid var(--border); margin: 0.7em 0; }
+
+/* Excalidraw integration overrides */
+.excalidraw-host { background: var(--surface); border-radius: 10px; overflow: hidden; }
+.excalidraw .App-menu_top { font-size: 12px; }
+
+/* utility */
+.fade-in { animation: fade-in 180ms ease-out both; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }

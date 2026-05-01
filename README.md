@@ -1,137 +1,120 @@
-# junnie-crew
+# Mock Interview Agent
 
-A personal AI agent framework that runs entirely on your local machine. Named after Junnie the cat.
+A local, agent-driven mock interview tool for **system design** and **ML system design**.
+Modeled on [Hello Interview](https://www.hellointerview.com/), but the interviewer is an agent
+that pushes back, picks deep dives based on what you actually drew, and scores you against the
+rubric at the end.
 
-The first skill is an **AI Paper Agent** that collects, scores, and curates research papers from arXiv, then sends you an email digest.
+Runs entirely on your machine via [Ollama](https://ollama.com) — no API keys, no per-call cost.
+
+## What's in here
+
+- **Excalidraw whiteboard** embedded in the interview view. Your diagram is serialized to text
+  and fed to the interviewer agent so it can react to what you drew.
+- **Free-form chat with a strict senior interviewer.** No turn-by-turn worksheet. The agent
+  drives the conversation, demands quantification, and pushes back on hand-wavy claims.
+- **Three agents working together:**
+  - **Interviewer** — every chat turn. Strict L6/E6 bar-raiser persona. Asks one short question
+    at a time, never gives the answer.
+  - **Deep-Dive Picker** — runs once when you reach the deep-dives stage. Reads your design
+    and picks 2–3 topics tailored to *your* gaps (not generic textbook topics).
+  - **Evaluator** — runs at "End interview". Reads the full transcript + final diagram and
+    produces rubric-aligned per-stage scores, a verdict (Strong Hire → No Hire), strengths,
+    and gaps with quotes.
+- **Sessions saved to disk** under `sessions/YYYY-MM-DD_HHMMSS_<question>/` (transcript JSON,
+  diagram, summary JSON, summary markdown).
+- **Free navigation** between stages — jump around as the conversation flows.
+
+## Stages
+
+1. Functional requirements
+2. Non-functional requirements
+3. Core entities & API
+4. High-level design (whiteboard expected)
+5. Deep dives (interviewer-driven Q&A)
+
+Pick a target level (Mid / Senior / Staff+) and the rubric weights breadth vs depth accordingly.
+
+## Setup
+
+Prereqs: macOS, ~25 GB free disk, [Homebrew](https://brew.sh).
+
+```bash
+# Install Ollama and Node
+brew install ollama node
+brew services start ollama
+
+# Pull the model (default: 14B, ~9 GB; fast and accurate enough)
+ollama pull qwen3:14b
+
+# Optional: for deeper feedback at the cost of latency (~20 GB)
+ollama pull qwen3:32b
+
+# Install JS deps and run
+git clone https://github.com/sylvieziyi/mock-interview-agent.git
+cd mock-interview-agent
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Open http://localhost:3000.
+
+## Switching models
+
+Edit `.env`:
+
+```
+OLLAMA_MODEL=qwen3:32b   # deeper, slower
+# or
+OLLAMA_MODEL=qwen3:14b   # default
+```
+
+Restart `npm run dev` after changing.
 
 ## Architecture
 
 ```
-agent/
-  main.py              # CLI entry point (--dry-run, --goal, --skill)
-  planner.py           # Generic skill selector (LLM picks which skill to run)
-  context.py           # 3-layer memory (working, short-term session, long-term persistent)
-  config.py            # All configuration in one place
-
-  shared/              # Reusable utilities (not domain-specific)
-    llm.py             #   Ollama/Qwen interface
-    email.py           #   Gmail SMTP
-    file_ops.py        #   File download, slugify, ensure_dir
-
-  tools/               # Domain tools (shared across skills)
-    fetchers.py        #   arXiv API with category filters + weighted topics
-    scorer.py          #   Multi-category LLM scoring (relevance, novelty, impact, quality)
-    summarizer.py      #   Paper summarization via LLM
-
-  skills/              # Pluggable skills (1 skill = 1 use case)
-    registry.py        #   Auto-discovers skills from subdirectories
-    ai_paper_agent/    #   Paper collection skill
-      skill.md         #     LLM-readable description (loaded by planner)
-      executor.py      #     Pipeline: fetch → dedup → score → summarize → download → notify
+src/
+  app/
+    page.tsx                  Home: question picker
+    interview/[id]/
+      page.tsx                Server shell — looks up question, renders client
+      InterviewClient.tsx     Orchestrator: state, agent calls, layout
+    api/
+      turn/route.ts           Interviewer agent (streaming)
+      picker/route.ts         Deep-dive topic picker (JSON)
+      finish/route.ts         Evaluator + write session to disk (JSON)
+  components/
+    ChatPanel.tsx             Transcript + input box
+    StagePills.tsx            Stage navigator
+    Whiteboard.tsx            Excalidraw wrapper (lazy, dark theme)
+    SummaryView.tsx           Verdict + per-stage scores screen
+    Markdown.tsx              react-markdown wrapper
+  lib/
+    llm.ts                    Ollama client (stream + JSON extract)
+    prompts.ts                The three agent prompts
+    diagram.ts                Excalidraw scene → text for the LLM
+    session.ts                Session/Message/Summary types
+    stages.ts                 Stage + level definitions
+    questions.ts              Question bank
+sessions/                     Saved interview transcripts (gitignored)
 ```
 
-**Key design decisions:**
-- **Coarse-grained skills** — each skill is a complete use case, not a micro-step
-- **Skills are Markdown** — `skill.md` files are read directly as LLM context
-- **Tools are shared** — `agent/tools/` is separate from skills so tools can be reused
-- **Generic planner** — selects which skill to run based on user goal, not step-by-step planning
+## Adding a question
 
-## Setup
+Edit `src/lib/questions.ts`. Each entry is
+`{ id, title, category, difficulty, brief, hints }`.
 
-### Prerequisites
+## Roadmap
 
-- Python 3.11+
-- [Ollama](https://ollama.ai) with Qwen 2.5 7B model
+- [x] Phase 1 — text-only, stateless feedback per stage
+- [x] Phase 2 — agentic interviewer, Excalidraw whiteboard, deep-dive picker, scored verdict, session save
+- [ ] Phase 3 — push-to-talk voice input via Web Speech API
+- [ ] Cross-session progress tracking (which gaps recur?)
+- [ ] More questions, especially ML system design
 
-```bash
-# Install Ollama, then pull the model
-ollama pull qwen2.5:7b
-```
+## Why local-only?
 
-### Install
-
-```bash
-git clone https://github.com/sylvieziyi/junnie-crew.git
-cd junnie-crew
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Configure email (optional)
-
-```bash
-cp .env.example .env
-# Edit .env with your Gmail address and App Password
-# To get an App Password: Google Account → Security → 2-Step Verification → App Passwords
-```
-
-## Usage
-
-```bash
-# Dry run (no LLM calls, no downloads, no email)
-python3 -m agent.main --skill ai_paper_agent --dry-run
-
-# Full run
-python3 -m agent.main --skill ai_paper_agent
-
-# Let the planner pick the skill based on a goal
-python3 -m agent.main --goal "find me the latest AI agent papers"
-```
-
-## AI Paper Agent
-
-### How it works
-
-1. **Fetch** — Queries arXiv with category-filtered searches (`cat:cs.AI`, `cs.CL`, `cs.LG`, `cs.CV`)
-2. **Dedup** — Removes papers seen in previous runs (long-term memory)
-3. **Score** — Multi-category LLM scoring across 4 dimensions:
-   | Category | Weight | What it measures |
-   |---|---|---|
-   | Relevance | 40% | How relevant to your interests |
-   | Novelty | 25% | How novel the approach |
-   | Practical Impact | 20% | Real-world applicability |
-   | Technical Quality | 15% | Rigor and methodology |
-4. **Filter** — Keeps papers above score threshold, takes top 20
-5. **Summarize** — 3-sentence summary via LLM
-6. **Download** — PDFs organized into `papers/YYYY/MM/DD/category/`
-7. **Notify** — HTML email digest with per-category score breakdowns
-
-### Topic priorities
-
-Topics are weighted so agent papers get more fetch quota:
-
-| Priority | Categories | Fetch multiplier |
-|---|---|---|
-| Highest | AI agents, planning, memory, deep research | 3x |
-| Medium | LLM reasoning, code generation | 2x |
-| Lower | Inference optimization, multimodal/VLM | 1x |
-
-Edit topics in `agent/config.py`.
-
-## Memory
-
-Three layers of context management:
-
-- **Working memory** — in-process key-value store for current run
-- **Short-term (session)** — JSON logs saved per run (`data/sessions/`)
-- **Long-term** — persistent state across runs (`data/long_term_memory.json`), tracks seen paper IDs to avoid duplicates
-
-Checkpoints are saved at each pipeline stage for crash recovery (`data/checkpoints/`).
-
-## Adding a new skill
-
-1. Create `agent/skills/your_skill/skill.md` — describe what the skill does
-2. Create `agent/skills/your_skill/executor.py` — implement `execute(context, dry_run)`
-3. The registry auto-discovers it. Run with `--skill your_skill`
-
-## Cost
-
-$0/month. Everything runs locally:
-- Qwen 2.5 7B via Ollama (free, local)
-- arXiv API (free, no key needed)
-- Gmail SMTP (free with App Password)
-
-## License
-
-MIT
+Per-call API cost adds up across many practice sessions. With Qwen3 14B on Apple Silicon you get
+~25 tok/s and pretty solid feedback for $0.

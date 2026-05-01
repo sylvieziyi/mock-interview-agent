@@ -1,7 +1,12 @@
-.venv/
+node_modules
+.next
+out
 .env
-data/
-papers/
-__pycache__/
-*.pyc
+.env.local
+*.log
 .DS_Store
+tsconfig.tsbuildinfo
+
+# personal interview transcripts (saved by /api/finish)
+sessions/
+
