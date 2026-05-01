@@ -1,9 +1,6 @@
 # Mock Interview Agent
 
 A local, agent-driven mock interview tool for **system design** and **ML system design**.
-Modeled on [Hello Interview](https://www.hellointerview.com/), but the interviewer is an agent
-that pushes back, picks deep dives based on what you actually drew, and scores you against the
-rubric at the end.
 
 Runs entirely on your machine via [Ollama](https://ollama.com) — no API keys, no per-call cost.
 
